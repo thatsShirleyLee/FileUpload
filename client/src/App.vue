@@ -72,42 +72,79 @@ Blob做分片非常快速的原因在于，只存储了文件的基本信息，t
   })
 } */
 
-const uploadChunks = (chunks: Blob[]) => {
-  // 每一个分片
+const mergeReq = () => {
+  fetch('http://127.0.0.1:3000/merge', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      fileName: fileName.value,
+      fileHash: fileHash.value,
+      size: CHUNK_SIZE
+    })
+  }).then(res => res.json())
+  .then(() => {
+    alert('合并成功');
+  })
+}
+
+const uploadChunks = async (chunks: Blob[], existChunks: string[]) => {
+  // 所有分片构成的数组
   const data = chunks.map((chunk, index) => {
     return {
       fileName: fileName.value,  // 大文件名
       fileHash: fileHash.value,  // 大文件hash
       chunk, // 分片对象
       chunkHash: `${fileHash.value}-${index}`,  // 分片hash
-      size: chunk.size
     }
   });
   // FormData数组：将每一个分片转为FormData对象，因为上传文件需要用FormData对象
-  const formDatas = data.map((item) => {
+  /* 过滤掉已经上传的chunk，再对每一个chunk转为FormData */
+  const formDatas = data.filter(item => {!existChunks.includes(item.chunkHash)}).map(item => {
     const formData = new FormData();
-    // 切片文件
-    formData.append('chunk', item.chunk);
-    // 分片hash
-    formData.append('chunkHash', item.chunkHash);
-    // 大文件名字
-    formData.append('fileName', item.fileName);
-    // 大文件hash
-    formData.append('fileHash', item.fileHash);
+    // formData.append('fileName', item.fileName);  // 大文件名字
+    formData.append('fileHash', item.fileHash);  // 大文件hash
+    formData.append('chunk', item.chunk); // 分片对象
+    formData.append('chunkHash', item.chunkHash);  // 分片hash
     return formData;
   });
-  let idx = 0;
   const max = 6;  // 浏览器并发线程数（同时最多6个并发请求）
+  let idx = 0; // 当前上传到第几个
   const taskQueue: any = []  // 请求队列（同时发6个并发请求，如果先完成的1个，会将其他请求补充进队列） 
   while(idx < formDatas.length) {
-    const task = fetch('http://127.0.0.1:3000/upload', {
+    const task = fetch('http://127.0.0.1:3000/upload', {  // 分片任务
       method: 'POST',
       body: formDatas[idx]
     })
-    task.then(() => {
+    task.then(() => {  // 请求完成后从队列中移除
       taskQueue.splice(taskQueue.findIndex((item: any) => item === task));
     })
+    taskQueue.push(task); // 放入请求队列
+    if(taskQueue.length === max) {  // 请求队列达到最大并发数，等待
+      await Promise.race(taskQueue); // 等待最先完成的请求
+    }
+    idx++;
   }
+  await Promise.all(taskQueue); // 等待所有请求完成
+  // 通知服务器合并文件
+  mergeReq();
+}
+
+const verifyHashAndChunk = () => {
+  return fetch('http://127.0.0.1:3000/verify', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      fileName: fileName.value,
+      fileHash: fileHash.value
+    })
+  }).then(res => res.json())
+  .then(res => {
+    return res;
+  })
 }
 const handleUpload = async (e: Event) => {
   const files = (e.target as HTMLInputElement).files; // 伪数组，每一个元素是File对象，File对象继承自Blob
@@ -123,8 +160,14 @@ const handleUpload = async (e: Event) => {
   fileHash.value = hash;
   // const hash = await computeHash(chunks); // 增量计算
   console.log('文件hash值', fileHash.value);
+  // 校验hash（有这个文件就不上传了，实现秒传）
+  const responseData = await verifyHashAndChunk();
+  if (!responseData.data.shouldUpload) {
+    alert('秒传成功');
+    return;
+  }
   // 上传分片
-  uploadChunks(chunks);
+  uploadChunks(chunks, responseData.data.existChunks);
 }
 </script>
 
