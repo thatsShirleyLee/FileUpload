@@ -5,7 +5,7 @@ const fse = require('fs-extra');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const app = express();
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "2gb" }));
 app.use(cors());
 
 // 所有上传的文件都存放到该目录下
@@ -66,12 +66,12 @@ app.post('/merge', async (req, res) => {
     return;
   }
   // 合并操作
-  const chunkNames = await fse.readdir(chunkDir); // 获取切片文件夹下的所有切片文件
-  // console.log(chunkNames);
-  chunkNames.sort((a, b) => a.split("-")[1] - b.split("-")[1]); // 按切片文件名排序
-  const writeChunkPromises = chunkNames.map((chunkName, index) => {
+  const chunks = await fse.readdir(chunkDir); // 获取切片文件夹下的所有切片文件
+  // console.log(chunks);
+  chunks.sort((a, b) => a.split("-")[1] - b.split("-")[1]); // 按切片文件名排序
+  const writeChunkPromises = chunks.map((chunk, index) => {
     return new Promise((resolve) => {
-      const chunkPath = path.resolve(chunkDir, chunkName); // 切片文件路径
+      const chunkPath = path.resolve(chunkDir, chunk); // 切片文件路径
       const readStream = fse.createReadStream(chunkPath); // 创建读取流
       readStream.on("end", async () => {
         // 读取流结束，删除切片文件
@@ -88,12 +88,40 @@ app.post('/merge', async (req, res) => {
   });
   await Promise.all(writeChunkPromises); // 等待所有切片文件合并完成
   await fse.remove(chunkDir);  // 合并完成，删除切片文件夹
-
   res.status(200).json({
     ok: true,
     msg: "合并成功",
   });
-})
+});
+app.post('/verify', async (req, res) => {
+  const { fileName, fileHash } = req.body;
+  // 返回服务器已经上传成功的切片
+  const chunkDir = path.join(uploadDir, fileHash); // 切片文件夹路径
+  let chunks = []; // 存已经上传的切片
+  if (fse.existsSync(chunkDir)) { // 切片路径存在，说明文件已经上传过一部分
+    chunks = await fse.readdir(chunkDir); // 获取切片文件夹下的所有切片文件(已经上传的)
+  }
+  const filePath = path.resolve(uploadDir, fileHash + extractExt(fileName)); // 完整的文件路径包括文件名
+  if(fse.existsSync(filePath)) { // 存在，不用上传
+    res.status(200).json({
+      ok: true,
+      msg: "文件已存在",
+      data: {
+        shouldUpload: false
+      }
+    });
+  } else {  // 不存在，需要上传（判断已经上传的分片）
+    res.status(200).json({
+      ok: true,
+      msg: "文件不存在",
+      data: {
+        shouldUpload: true,
+        existChunks: chunks
+      }
+    });
+  }
+});
+
 app.listen(3000, () => {
     console.log('Server is running on port 3000');
 });
