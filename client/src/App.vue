@@ -20,6 +20,19 @@ const createChunks = (file: File): Blob[] => {
   return chunks;
 }
 
+const getArrayBufferChunks = async (chunks: Blob[]) => {
+  async function readAsArrayBuffer(chunk: Blob) {  // 将每一个chunk转为ArrayBuffer, 因为Blob无法直接移交到Worker中
+    return new Promise<ArrayBuffer>((resolve) => {
+      const fileReader = new FileReader();
+      fileReader.onload = (e) => {
+        resolve(e.target!.result as ArrayBuffer);
+      }
+      fileReader.readAsArrayBuffer(chunk);
+    })
+  }
+  return await Promise.all(chunks.map(readAsArrayBuffer));
+}
+
 const calculateHash = (chunks: Blob[]) => {
   return new Promise((resolve) => {
     // 1. 头和尾 chunk 文件全部内容 =》hash
@@ -155,6 +168,9 @@ const handleUpload = async (e: Event) => {
   // 文件分片
   const chunks = createChunks(files[0]);
   console.log('文件分片', chunks);
+  // Blob分片转ArrayBuffer分片
+  const chunkArrayBuffers = getArrayBufferChunks(chunks);
+  console.log('ArrayBuffer分片', chunkArrayBuffers);
   // hash计算
   const hash = await calculateHash(chunks);
   fileHash.value = hash;
