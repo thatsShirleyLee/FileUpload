@@ -10,19 +10,18 @@ let fileHash = ref<string>('');
 
 // 1MB = 1024KB = 1024 * 1024B (B: 字节 )
 const CHUNK_SIZE = 1024 * 1024 * 5; // 5MB
-const createChunks = (file: File) => {
+const createChunks = (file: File): Blob[] => {
   let cur = 0;
-  let chunks = [];
+  let chunks: Blob[] = [];
   while(cur < file.size) {
-    const blob = file.slice(cur, cur + CHUNK_SIZE);
-    chunks.push(blob);
+    chunks.push(file.slice(cur, cur + CHUNK_SIZE));
     cur += CHUNK_SIZE;
   }
   return chunks;
 }
 
 const calculateHash = (chunks: Blob[]) => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     // 1. 头和尾 chunk 文件全部内容 =》hash
     // 2. 其余 chunk，取头部两字节+中间两字节+尾部两字节的内容 =》hash
     const targets: Blob[] = []; // 存储所有参与计算的切片
@@ -146,6 +145,7 @@ const verifyHashAndChunk = () => {
     return res;
   })
 }
+
 const handleUpload = async (e: Event) => {
   const files = (e.target as HTMLInputElement).files; // 伪数组，每一个元素是File对象，File对象继承自Blob
   if(!files) return;
