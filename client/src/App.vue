@@ -7,6 +7,17 @@ import {ref} from 'vue';
 
 let fileName = ref<string>('');
 let fileHash = ref<string>('');
+let persentage = ref<number>(0);
+// 节流：控制上传进度
+let lastUpdate = 0;
+const delay = 100;  // 100ms 更新一次
+const updatePersentage = (idx: any, length: any) => {
+  const now = Date.now();
+  if(now - lastUpdate < delay) return;
+  const newPersentage = parseInt(((idx / length) * 100).toFixed(0));
+  persentage.value = newPersentage;
+  lastUpdate = now;
+}
 
 // 1MB = 1024KB = 1024 * 1024B (B: 字节 )
 const CHUNK_SIZE = 1024 * 1024 * 5; // 5MB
@@ -82,9 +93,16 @@ const mergeReq = () => {
       fileHash: fileHash.value,
       size: CHUNK_SIZE
     })
-  }).then(res => res.json())
+  }).then(res => {
+    if(!res.ok) {
+      return res.json().then( err => {throw new Error(err.msg)} );
+    }
+  })
   .then(() => {
     alert('合并成功');
+  })
+  .catch(err => {
+    alert(err.message);
   })
 }
 
@@ -100,7 +118,7 @@ const uploadChunks = async (chunks: Blob[], existChunks: string[]) => {
   });
   // FormData数组：将每一个分片转为FormData对象，因为上传文件需要用FormData对象
   /* 过滤掉已经上传的chunk，再对每一个chunk转为FormData */
-  const formDatas = data.filter(item => {!existChunks.includes(item.chunkHash)}).map(item => {
+  const formDatas = data.filter(item => !existChunks.includes(item.chunkHash)).map(item => {
     const formData = new FormData();
     // formData.append('fileName', item.fileName);  // 大文件名字
     formData.append('fileHash', item.fileHash);  // 大文件hash
@@ -124,8 +142,10 @@ const uploadChunks = async (chunks: Blob[], existChunks: string[]) => {
       await Promise.race(taskQueue); // 等待最先完成的请求
     }
     idx++;
+    updatePersentage(idx, formDatas.length); // 更新进度条
   }
   await Promise.all(taskQueue); // 等待所有请求完成
+  persentage.value = 100; // 进度条完成
   // 通知服务器合并文件
   mergeReq();
 }
@@ -175,6 +195,7 @@ const handleUpload = async (e: Event) => {
   <div>
     <h1>大文件上传</h1>
     <input type="file" @change="handleUpload">
+    <input type="range" :value="persentage" min="0" max="100" step="1" disabled><span>{{persentage}}</span>
   </div>
 </template>
 

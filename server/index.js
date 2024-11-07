@@ -4,6 +4,7 @@ const multiparty = require('multiparty');
 const fse = require('fs-extra');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const { log } = require('console');
 const app = express();
 app.use(bodyParser.json({ limit: "2gb" }));
 app.use(cors());
